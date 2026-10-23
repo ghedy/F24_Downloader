@@ -1,0 +1,45 @@
+# Per impostazione predefinita sono ammessi solo i sorgenti pubblicabili.
+# Nuovi file privati o copie della configurazione restano esclusi.
+/*
+!/.gitignore
+!/.gitattributes
+!/main.py
+!/avvia.bat
+!/README.md
+!/LICENSE
+!/SECURITY.md
+!/requirements.txt
+!/requirements-dev.txt
+!/pyproject.toml
+
+!/config/
+/config/*
+!/config/__init__.py
+!/config/config_manager.py
+!/config/config.example.json
+
+!/src/
+!/tests/
+!/tools/
+!/docs/
+!/.github/
+
+# Dati privati, credenziali, documenti e artefatti, anche nelle sottocartelle.
+**/config.json*
+**/credentials.bin*
+**/*.pdf
+**/*.log
+**/*.tmp
+**/*.bak
+**/.env
+**/.env.*
+**/__pycache__/
+**/*.py[cod]
+**/f24_output/
+**/.pytest_cache/
+**/.pytest_tmp/
+**/.venv/
+**/venv/
+**/build/
+**/dist/
+**/*.egg-info/

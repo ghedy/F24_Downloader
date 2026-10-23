@@ -1,0 +1,33 @@
+[project]
+name = "f24-downloader"
+version = "0.2.0a13"
+description = "Applicazione desktop indipendente per scaricare quietanze F24 dal Cassetto fiscale."
+requires-python = ">=3.12"
+readme = "README.md"
+license = "MIT"
+dependencies = ["PySide6==6.11.1", "playwright==1.61.0", "pdfplumber==0.11.10"]
+
+[project.scripts]
+f24-downloader = "main:main"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+include = ["src*", "config*"]
+exclude = ["tests*", "tools*", "_legacy*"]
+
+[tool.setuptools.package-data]
+"src.ui" = ["icons/*.svg"]
+"config" = ["config.example.json"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["config.json", "credentials.bin*", "*.tmp", "*.pdf", "*.log"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
