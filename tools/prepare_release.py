@@ -14,7 +14,7 @@ TOP_LEVEL = {
 }
 CONFIG = {"config/__init__.py", "config/config_manager.py", "config/config.example.json"}
 TREES = {"src": {".py", ".svg"}, "tests": {".py"}, "tools": {".py"}, "docs": {".md"},
-         ".github": {".md", ".yml", ".yaml"}}
+         ".github": {".md", ".yml", ".yaml"}, "packaging": {".txt", ".iss"}}
 
 def release_files(root=ROOT):
     root = Path(root)

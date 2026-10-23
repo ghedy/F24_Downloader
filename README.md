@@ -3,7 +3,7 @@
 Applicazione desktop gratuita e indipendente per raccogliere le quietanze F24
 dal Cassetto fiscale dell'Agenzia delle Entrate sul proprio computer.
 
-**Versione 0.2.0a13 - versione di prova (alpha). Non ancora verificata
+**Versione 0.2.0a14 - versione di prova (alpha). Non ancora verificata
 integralmente sul portale reale.** Il progetto non è affiliato, approvato o
 supportato dall'Agenzia delle Entrate.
 
@@ -46,7 +46,14 @@ Un modello F24 non sostituisce una quietanza. Se il portale rifiuta la quietanza
 oppure il download Q scade, viene tentato una volta il formato P dello stesso
 documento; i modelli ottenuti sono identificati nel nome e nel riepilogo.
 
-## Requisiti e avvio su Windows
+## Download per Windows
+
+Il pacchetto installabile include Python e Firefox. Supporta Windows 10 (1809 o
+successivo) e Windows 11 a 64 bit. Le istruzioni per installazione, aggiornamenti
+e posizione dei dati sono in [Installazione Windows](docs/INSTALLAZIONE_WINDOWS.md).
+La versione è alpha e il pacchetto non è firmato digitalmente.
+
+## Requisiti e avvio dai sorgenti su Windows
 
 Python 3.12 o successivo; sviluppo verificato con Python 3.14 e Windows.
 Connessione Internet, utenza AdE valida e relative autorizzazioni.
@@ -268,3 +275,16 @@ locale `_legacy/`, esclusa da Git e dai pacchetti di rilascio.
 
 Licenza: [MIT](LICENSE). La licenza consente anche riusi commerciali del codice;
 questa distribuzione rimane gratuita.
+
+## Costruire il pacchetto Windows
+
+Usare Python 3.14 x64 e Inno Setup 6.7.3. In un ambiente virtuale separato:
+
+```powershell
+python -m pip install -r packaging/requirements-windows-build.txt
+python tools/build_windows.py --iscc "C:\percorso\Inno Setup 6\ISCC.exe"
+```
+
+La procedura esporta solo i sorgenti pubblicabili, include Firefox, verifica
+l'eseguibile con download PDF sintetico senza contattare AdE e genera installer
+e checksum SHA-256 in `dist/<versione>/`. Non crea archivi dei sorgenti.

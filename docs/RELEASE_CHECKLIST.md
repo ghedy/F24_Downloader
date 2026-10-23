@@ -1,14 +1,14 @@
 # Verifica prima del rilascio
 
 Repository pubblico: [ghedy/F24_Downloader](https://github.com/ghedy/F24_Downloader).
-Versione iniziale: 0.2.0a13 (alpha). Le voci non spuntate indicano verifiche
+Versione iniziale: 0.2.0a13 (alpha). Pacchetto Windows: 0.2.0a14. Le voci non spuntate indicano verifiche
 ancora da completare o ripetere prima di versioni successive.
 
 ## Verifiche automatiche
 
 - [x] Eseguiti 162 test su una copia pulita dei soli file Git (0.2.0a13).
-- [ ] Installare le dipendenze in un ambiente virtuale nuovo.
-- [ ] Installare Firefox con `python -m playwright install firefox`.
+- [x] Dipendenze installate in un ambiente virtuale nuovo per il pacchetto Windows a14.
+- [x] Firefox installato e incluso nel pacchetto; download PDF sintetico verificato nell’eseguibile.
 - [x] Verificati 53 file con `python tools/check_repository.py --staged`; dati locali esclusi.
 - [ ] Esaminare `git diff --cached --stat` e verificare che i dati locali siano ignorati.
 - [ ] Riesaminare dipendenze, relative licenze e attribuzioni.
@@ -134,3 +134,13 @@ Il repository remoto è ghedy/F24_Downloader; gli aggiornamenti passano dai soli
 - [ ] Profilo personale: nessuna apertura della pagina Cambia utenza, prosecuzione al Cassetto.
 - [ ] Solo Sielte e CIE attivi; altri metodi grigi e non selezionabili.
 - [ ] Anni e date compatti, pulsanti allineati e separatori con trattino corto.
+
+## Pacchetto Windows 0.2.0a14
+
+- Suite applicativa: 164 test superati; i due nuovi test sul runtime incluso
+  e i controlli mirati di avvio/configurazione sono superati separatamente.
+- Eseguibile verificato senza cache browser esterna: rubrica iniziale vuota,
+  soli CIE/Sielte, DPAPI, interfaccia e icone, Firefox incluso, download e
+  lettura di un PDF sintetico. Nessun accesso al portale reale durante il controllo.
+- Installer per utente con preferenze in LocalAppData, separate dal programma.
+- Pacchetto non firmato digitalmente, indicato nelle istruzioni di installazione.

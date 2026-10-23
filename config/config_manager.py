@@ -1,11 +1,21 @@
 """Configurazione locale. Segreti separati e protetti con Windows DPAPI."""
 import json
 import os
+import sys
 import uuid
 from pathlib import Path
 from src.security import protect, unprotect
 
-CONFIG_FILE = Path(__file__).parent / "config.json"
+def default_config_file():
+    """Installazioni: dati per utente, separati dai file del programma."""
+    if getattr(sys, "frozen", False):
+        local = os.environ.get("LOCALAPPDATA")
+        base = Path(local) if local else Path.home() / "AppData/Local"
+        return base / "F24Downloader/config.json"
+    return Path(__file__).parent / "config.json"
+
+
+CONFIG_FILE = default_config_file()
 
 
 class CredentialsUnavailableError(ValueError):
@@ -67,7 +77,7 @@ def carica_config_avvio(path=None):
         warning = (
             "Le credenziali salvate non sono utilizzabili su questo account Windows. "
             "Può accadere dopo aver copiato il programma su un altro computer o se il file è danneggiato.\n\n"
-            "Il file originale è stato conservato nella cartella config con nome "
+            "Il file originale è stato conservato nella cartella della configurazione con nome "
             "credentials.bin.non-utilizzabile-… Le utenze e le impostazioni sono state mantenute.\n\n"
             "Reinserisci le credenziali su questo PC e, se desideri, scegli di ricordarle. "
             "Controlla anche la cartella di destinazione dei PDF."

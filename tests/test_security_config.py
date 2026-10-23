@@ -191,3 +191,18 @@ def test_failed_recovery_restores_original_archive(tmp_path, monkeypatch):
         manager.carica_config_avvio(path)
     assert archive.read_bytes() == b"keep-original"
     assert not list(tmp_path.glob("*.non-utilizzabile-*"))
+
+
+def test_frozen_settings_are_outside_installation(monkeypatch, tmp_path):
+    monkeypatch.setattr(manager.sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "user"))
+    path = manager.default_config_file()
+    assert path == tmp_path / "user/F24Downloader/config.json"
+    assert not path.exists()
+    manager.salva_config({"utenze": [], "impostazioni": {}}, path)
+    assert manager.carica_config(path)["utenze"] == []
+
+
+def test_source_settings_keep_existing_location(monkeypatch):
+    monkeypatch.delattr(manager.sys, "frozen", raising=False)
+    assert manager.default_config_file() == manager.Path(manager.__file__).parent / "config.json"

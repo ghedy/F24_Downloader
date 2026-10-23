@@ -1,5 +1,12 @@
 # Modifiche
 
+## 0.2.0a14
+
+- Pacchetto Windows x64 con Python e Firefox inclusi e installer per utente.
+- Configurazione dell'installazione in LocalAppData, separata dal programma.
+- Icona applicativa, licenze incluse e verifica offline dell'eseguibile.
+- Accessi attivi sempre limitati a CIE e SPID Sielte.
+
 ## 0.2.0a13
 
 - Font definiti in punti positivi per evitare l'avviso QFont::setPointSize(-1)

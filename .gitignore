@@ -21,6 +21,7 @@
 !/src/
 !/tests/
 !/tools/
+!/packaging/
 !/docs/
 !/.github/
 
