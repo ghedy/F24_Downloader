@@ -32,7 +32,15 @@ def get_pdf_url_from_detail(detail_url, stampa="Q"):
     return urlunsplit(parts._replace(query=urlencode(query)))
 
 def list_url(anno, dal="", al=""):
-    return BASE_URL + "?" + urlencode({"Ric": "F24", "Anno": anno, "dataDal": dal, "dataAl": al})
+    return _with_period(BASE_URL + "?" + urlencode({"Ric": "F24", "Anno": anno}), dal, al)
+
+
+def _with_period(url, dal, al):
+    parts = urlsplit(url)
+    query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True)
+             if key not in {"dataDal", "dataAl"}]
+    query.extend((("dataDal", dal), ("dataAl", al)))
+    return urlunsplit(parts._replace(query=urlencode(query)))
 
 def _is_cassetto(url):
     if not isinstance(url, str):
@@ -101,7 +109,8 @@ def _empty_result(text):
     normalized = re.sub(r"\s+", " ", text).lower()
     return any(message in normalized for message in (
         "nessun versamento", "nessuna quietanza", "nessun dato",
-        "non risultano versamenti", "nessuna occorrenza"))
+        "non risultano versamenti", "nessuna occorrenza",
+        "nessuna disposizione", "non risultano disposizioni"))
 
 class SessionNeedsRestore(RuntimeError):
     pass
@@ -181,12 +190,12 @@ def _year_link_visible(link):
             x >= area.left && x <= area.right && y >= area.top && y <= area.bottom;
     }""")
 
-def _visible_year_link(page, anno):
+def _visible_year_link(page, anno, section):
     present = False
-    for link in page.locator(f'a[href*="Ric=F24"][href*="Anno={anno}"]').all():
+    for link in page.locator(f'a[href*="Ric={section}"][href*="Anno={anno}"]').all():
         href = link.get_attribute("href") or ""
         query = dict(parse_qsl(urlsplit(safe_url(href, page.url)).query))
-        if query.get("Ric") != "F24" or query.get("Anno") != str(anno):
+        if query.get("Ric") != section or query.get("Anno") != str(anno):
             continue
         present = True
         if _year_link_visible(link):
@@ -204,7 +213,7 @@ def _carousel_state(page):
             .map(item => item.getAttribute('data-slide-to') || item.getAttribute('data-bs-slide-to') || '');
         const frame = root.querySelector('.carousel-inner') || root;
         const area = frame.getBoundingClientRect();
-        const visible = [...root.querySelectorAll('a[href*="Ric=F24"][href*="Anno="]')]
+        const visible = [...root.querySelectorAll('a[href*="Ric="][href*="Anno="]')]
             .filter(item => {
                 const style = getComputedStyle(item), rect = item.getBoundingClientRect();
                 const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
@@ -247,10 +256,10 @@ def _carousel_control(page, direction):
         return control
     return None
 
-def _find_year_in_carousel(page, anno, cancel=None, log=print):
+def _find_year_in_carousel(page, anno, cancel=None, log=print, *, section="F24"):
     initial = _carousel_state(page)
     if initial is None:
-        return _visible_year_link(page, anno)
+        return _visible_year_link(page, anno, section)
     _wait_carousel(page, cancel=cancel)
     present = False
     for direction, title in (("next", "Anni successivi"), ("prev", "Anni precedenti")):
@@ -258,7 +267,7 @@ def _find_year_in_carousel(page, anno, cancel=None, log=print):
         for _ in range(CAROUSEL_MAX_STEPS):
             check_cancel(cancel)
             state = _wait_carousel(page, cancel=cancel)
-            link, found = _visible_year_link(page, anno)
+            link, found = _visible_year_link(page, anno, section)
             present = present or found
             if link is not None:
                 return link, present
@@ -279,15 +288,20 @@ def _find_year_in_carousel(page, anno, cancel=None, log=print):
             raise RuntimeError("Troppi scorrimenti del carosello: ricerca degli anni interrotta.")
     return None, present
 
-def seleziona_anno(page, anno, cancel=None, log=print):
+def seleziona_anno(page, anno, cancel=None, log=print, *, section="F24"):
     check_cancel(cancel)
     _check_session(page)
-    chosen, present = _find_year_in_carousel(page, anno, cancel=cancel, log=log)
+    chosen, present = _find_year_in_carousel(page, anno, cancel=cancel, log=log, section=section)
     if chosen is None:
         text = page.locator("body").inner_text(timeout=5_000).lower()
         _check_session(page, text)
-        if not _is_versamenti(page.url):
+        expected = "VERS" if section == "F24" else section
+        if not (_is_consultazioni(page.url) and ("Ric", expected) in parse_qsl(urlsplit(page.url).query)):
             raise RuntimeError("Pagina di selezione anni non riconosciuta.")
+        if section == "VXX" and not (
+                "altre disposizioni" in _normalized_text(text) or _empty_result(text)
+                or page.locator('a[href*="Ric=VXX"][href*="Anno="]').count()):
+            raise RuntimeError("Selettore anni delle altre disposizioni non riconosciuto.")
         if present:
             raise RuntimeError(f"Il collegamento dell'anno {anno} è presente ma resta nascosto dopo lo scorrimento.")
         raise YearNotAvailable(str(anno))
@@ -295,29 +309,36 @@ def seleziona_anno(page, anno, cancel=None, log=print):
     # nascoste dello stesso href in altri pannelli.
     return _click_service_link(page, chosen,
         lambda url: _is_consultazioni(url)
-            and dict(parse_qsl(urlsplit(url).query)).get("Ric") == "F24"
+            and dict(parse_qsl(urlsplit(url).query)).get("Ric") == section
             and dict(parse_qsl(urlsplit(url).query)).get("Anno") == str(anno),
         f"anno {anno}", cancel, log)
 
-def apri_cassetto_e_scegli_date(page, anno, dal="", al="", cancel=None, log=print):
+def apri_cassetto_e_scegli_date(page, anno, dal="", al="", cancel=None, log=print, *, section="F24"):
     check_cancel(cancel)
     log("Apertura del Cassetto fiscale…")
     for attempt in range(1, SESSION_ATTEMPTS + 1):
         try:
             _check_session(page)
-            if _return_to_main(page.url):
+            if section == "F24" and _return_to_main(page.url):
                 log("Ritorno alla pagina principale del Cassetto fiscale prima della scelta dell'anno…")
                 navigate(page, BASE_URL, cancel=cancel)
                 _check_session(page)
             page = apri_servizio_cassetto(page, cancel=cancel, log=log)
-            if attempt == 1:
+            if attempt == 1 and section == "F24":
                 wait_seconds(page, 3, cancel)
-            page = apri_consultazioni_e_versamenti(page, cancel=cancel, log=log)
+            if section == "VXX":
+                if not _is_consultazioni(page.url):
+                    page = apri_consultazioni_e_versamenti(page, cancel=cancel, log=log)
+                navigate(page, BASE_URL + "?Ric=VXX", cancel=cancel)
+                page = seleziona_anno(page, anno, cancel=cancel, log=log, section=section)
+                period_url = _with_period(safe_url(page.url), dal, al)
+            else:
+                page = apri_consultazioni_e_versamenti(page, cancel=cancel, log=log)
+                page = seleziona_anno(page, anno, cancel=cancel, log=log)
+                period_url = list_url(anno, dal, al)
             _check_session(page)
             log("Ricerca delle quietanze per anno e periodo…")
-            page = seleziona_anno(page, anno, cancel=cancel, log=log)
-            _check_session(page)
-            navigate(page, list_url(anno, dal, al), timeout=60_000, cancel=cancel)
+            navigate(page, period_url, timeout=60_000, cancel=cancel)
             text = page.locator("body").inner_text(timeout=5_000)
             _check_session(page, text)
             if _empty_result(text):
@@ -351,18 +372,35 @@ def collect_rows(page, anno="", dal="", al=""):
                          "tipo": "direct" if direct else "detail"})
     return rows
 
-def collect_all_rows(page, anno, dal, al, cancel=None):
+def _collect_payment_details(page):
+    for row in page.locator("table tbody tr").all():
+        for link in row.locator("a[href]").all():
+            href = link.get_attribute("href") or ""
+            if not href or href.startswith(("#", "javascript:")):
+                continue
+            query = dict(parse_qsl(urlsplit(href).query))
+            label = _normalized_text(" ".join(
+                [link.inner_text(), link.get_attribute("title") or "",
+                 link.get_attribute("aria-label") or ""]))
+            if "stampa" not in query and (
+                    query.get("Ric", "").casefold().startswith("det") or "dettaglio" in label):
+                yield {"url": safe_url(href, page.url), "tipo": "detail"}
+                break
+
+
+def collect_all_rows(page, anno, dal, al, cancel=None, *, section="F24"):
     rows, seen, pages = [], set(), set()
     for _ in range(100):
         check_cancel(cancel)
         if page.url in pages:
             raise RuntimeError("Paginazione ciclica: ricerca interrotta per evitare un risultato incompleto.")
         pages.add(page.url)
-        for row in collect_rows(page, anno, dal, al):
-            pdf_url = get_pdf_url_from_detail(row["url"])
-            if pdf_url not in seen:
-                seen.add(pdf_url)
-                rows.append({"url": pdf_url, "tipo": "direct"})
+        listed = _collect_payment_details(page) if section == "VXX" else collect_rows(page, anno, dal, al)
+        for row in listed:
+            url = row["url"] if section == "VXX" else get_pdf_url_from_detail(row["url"])
+            if url not in seen:
+                seen.add(url)
+                rows.append({"url": url, "tipo": "detail" if section == "VXX" else "direct"})
         next_links = page.locator('a[rel="next"], a').all()
         next_url = None
         for link in next_links:
@@ -444,45 +482,78 @@ def download_pdf(page, url, dest_path):
         page.remove_listener("framenavigated", on_navigation)
 
 
-def _download_with_restore(page, url, destination, anno, dal, al, cancel, log):
+def _payment_quietanza_url(page, detail_url, cancel):
+    navigate(page, detail_url, cancel=cancel)
+    detail_url = safe_url(page.url)
+    _check_session(page)
+    for link in page.locator('a[href*="stampa=Q"]').all():
+        url = safe_url(link.get_attribute("href"), detail_url)
+        if ("stampa", "Q") in parse_qsl(urlsplit(url).query):
+            return url
+    return get_pdf_url_from_detail(detail_url)
+
+
+def _download_with_restore(page, url, destination, anno, dal, al, cancel, log, *, section="F24"):
     for attempt in range(1, SESSION_ATTEMPTS + 1):
         check_cancel(cancel)
         try:
-            download_pdf(page, url, destination)
+            pdf_url = _payment_quietanza_url(page, url, cancel) if section == "VXX" else url
+            download_pdf(page, pdf_url, destination)
             return
         except SessionNeedsRestore:
             if attempt == SESSION_ATTEMPTS:
                 raise SessionRestoreFailed("Ripristino della sessione non riuscito durante il download del documento.") from None
             log(f"Sessione interrotta durante il documento. Ripristino {attempt}/{SESSION_ATTEMPTS - 1}…")
             ripristina_cassetto(page, cancel=cancel, log=log)
-            apri_cassetto_e_scegli_date(page, anno, dal, al, cancel, log)
+            options = {"section": section} if section == "VXX" else {}
+            page = apri_cassetto_e_scegli_date(page, anno, dal, al, cancel, log, **options) or page
 
 
-def scarica_f24(page, anno, dal, al, output_dir, cancel=None, log=print, progress=None, pausa=2):
+def scarica_f24(page, anno, dal, al, output_dir, cancel=None, log=print, progress=None, pausa=2,
+                *, include_other=False):
     output_dir = Path(output_dir)
     log("Verifica della cartella di destinazione…")
     prepare_destination(output_dir)
     result = DownloadResult(destination=output_dir)
-    try:
-        page = apri_cassetto_e_scegli_date(page, anno, dal, al, cancel, log) or page
-    except YearNotAvailable:
-        result.unavailable_years = (int(anno),)
-        log(f"Anno {anno}: selettore assente, nessun F24 disponibile. Anno saltato.")
+    comparison_cache = {}
+    check_cancel(cancel)
+    available = False
+    sections = ("F24", "VXX") if include_other else ("F24",)
+    for section in sections:
+        if result.cancelled or (cancel is not None and cancel.is_set()):
+            result.cancelled = True
+            break
+        title = "Altre disposizioni di pagamento" if section == "VXX" else "F24 ordinari"
+        log(f"Anno {anno} · {title}.")
+        options = {"section": section} if section == "VXX" else {}
+        try:
+            page = apri_cassetto_e_scegli_date(page, anno, dal, al, cancel, log, **options) or page
+        except YearNotAvailable:
+            log(f"Anno {anno} · {title}: selettore assente.")
+            continue
+        available = True
+        rows = collect_all_rows(page, anno, dal, al, cancel, **options)
+        if not rows and not _empty_result(page.locator("body").inner_text(timeout=5_000)):
+            raise RuntimeError(f"{title}: nessun collegamento ai documenti riconosciuto. Verifica il portale.")
+        result.total += len(rows)
+        log(f"{title}: {len(rows)} quietanze da elaborare nel periodo.")
         if progress:
             progress(result)
-        return result
-    rows = collect_all_rows(page, anno, dal, al, cancel)
-    if not rows:
-        text = page.locator("body").inner_text(timeout=5_000).lower()
-        if not _empty_result(text):
-            raise RuntimeError("Nessun collegamento a quietanze riconosciuto. Verifica il contenuto sul portale.")
+        _scarica_documenti(page, rows, anno, dal, al, output_dir, result, comparison_cache,
+                           cancel, log, progress, pausa, section)
+    if not available and not result.cancelled:
+        result.unavailable_years = (int(anno),)
+    elif available and not result.total and not result.cancelled:
         result.empty_years = (int(anno),)
-        log(f"Anno {anno}: nessuna occorrenza nel periodo selezionato.")
-    result.total = len(rows)
-    log(f"Individuate {len(rows)} quietanze da elaborare.")
     if progress:
         progress(result)
-    comparison_cache = {}
+    return result
+
+
+def _scarica_documenti(page, rows, anno, dal, al, output_dir, result, comparison_cache,
+                       cancel, log, progress, pausa, section):
+    altre_disposizioni = section == "VXX"
+    download_options = {"section": section} if altre_disposizioni else {}
     for index, row in enumerate(rows, 1):
         if cancel is not None and cancel.is_set():
             result.cancelled = True
@@ -492,8 +563,11 @@ def scarica_f24(page, anno, dal, al, output_dir, cancel=None, log=print, progres
             try:
                 model = False
                 try:
-                    _download_with_restore(page, row["url"], downloaded, anno, dal, al, cancel, log)
+                    _download_with_restore(page, row["url"], downloaded, anno, dal, al,
+                                           cancel, log, **download_options)
                 except (QuietanzaNotPrintable, PWTimeout) as error:
+                    if altre_disposizioni:
+                        raise
                     reason = ("Delega non stampabile come quietanza" if isinstance(error, QuietanzaNotPrintable)
                               else "Quietanza non ricevuta entro il tempo previsto")
                     log(f"{index}/{len(rows)} · {reason}: provo il modello F24 (stampa=P).")
@@ -501,6 +575,8 @@ def scarica_f24(page, anno, dal, al, output_dir, cancel=None, log=print, progres
                         downloaded, anno, dal, al, cancel, log)
                     model = True
                 options = {"document_kind": "modello"} if model else {}
+                if altre_disposizioni:
+                    options["compact_amount"] = True
                 name = processa_nuovo_file(str(downloaded), output_dir=output_dir,
                     comparison_cache=comparison_cache, **options)
                 if name == "skipped":
@@ -522,7 +598,9 @@ def scarica_f24(page, anno, dal, al, output_dir, cancel=None, log=print, progres
                 raise
             except PWTimeout:
                 result.errors += 1
-                log(f"{index}/{len(rows)} · Documento non disponibile né come quietanza né come modello P, o attesa scaduta.")
+                message = ("Quietanza Q non ricevuta entro il tempo previsto." if altre_disposizioni
+                           else "Documento non disponibile né come quietanza né come modello P, o attesa scaduta.")
+                log(f"{index}/{len(rows)} · {message}")
             except Exception:
                 result.errors += 1
                 log(f"{index}/{len(rows)} · Download non riuscito. Verifica il documento nel portale.")
@@ -535,4 +613,3 @@ def scarica_f24(page, anno, dal, al, output_dir, cancel=None, log=print, progres
                     break
             else:
                 page.wait_for_timeout(max(2, pausa) * 1000)
-    return result

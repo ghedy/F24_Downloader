@@ -4,7 +4,7 @@ from pathlib import Path
 import hashlib
 import re
 import shutil
-from src.rinomina_f24 import _impronta_contenuto, estrai_dati
+from src.rinomina_f24 import _impronta_contenuto, estrai_dati, prossimo_progressivo
 
 @dataclass
 class FolderResult:
@@ -51,9 +51,11 @@ def _standard_name(path, data, digest, folder):
     prefix = "F24_modello" if path.name.startswith("F24_modello_") else "F24"
     day, amount, _ = data
     amount = amount.replace(",", ".")
-    if re.fullmatch(rf"{prefix}_{day}_\d+_{re.escape(amount)}euro\.pdf", path.name, re.IGNORECASE):
+    match = re.fullmatch(rf"{prefix}_{day}_\d+_(\d+(?:\.\d*)?)euro\.pdf", path.name, re.IGNORECASE)
+    compact = amount[:-2] if amount.endswith(".00") else amount
+    if match and match[1] in (amount, compact):
         return path
-    sequence = 1
+    sequence = prossimo_progressivo(folder, day)
     while True:
         target = folder / f"{prefix}_{day}_{sequence:03d}_{amount}euro.pdf"
         try:

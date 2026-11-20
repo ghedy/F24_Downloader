@@ -77,7 +77,7 @@ def run_download(request, credentials=None, cancel=None, log=print, progress=Non
                         progress(_combine_results(baseline, value, request.destination))
                 current = scarica_f24(page, str(annual.anno), annual.dal.strftime("%d/%m/%Y"),
                     annual.al.strftime("%d/%m/%Y"), annual.destination,
-                    cancel, log, report, annual.pausa)
+                    cancel, log, report, annual.pausa, include_other=True)
                 current.processed_years = (annual.anno,)
                 aggregate = _combine_results(aggregate, current, request.destination)
                 if progress:

@@ -227,7 +227,14 @@ def _impronta_contenuto(path, cache):
     cache[key] = (stamp, fingerprint)
     return fingerprint
 
-def processa_nuovo_file(temp_path: str, output_dir=None, comparison_cache=None, document_kind="quietanza") -> str:
+def prossimo_progressivo(folder, day):
+    pattern = re.compile(rf"F24_(?:modello_)?{day}_(\d+)_.*\.pdf", re.IGNORECASE)
+    return 1 + max((int(match[1]) for item in folder.iterdir()
+                    if (match := pattern.fullmatch(item.name))), default=0)
+
+
+def processa_nuovo_file(temp_path: str, output_dir=None, comparison_cache=None,
+                        document_kind="quietanza", *, compact_amount=False) -> str:
     """Confronta byte e contenuto F24, escludendo i soli dati di generazione noti."""
     if document_kind not in {"quietanza", "modello"}:
         raise ValueError("Tipo di documento non supportato.")
@@ -252,15 +259,14 @@ def processa_nuovo_file(temp_path: str, output_dir=None, comparison_cache=None, 
     data = estrai_dati(str(source))
     sequence = 1
     if data:
-        day = data[0]
-        for existing in folder.glob(f"{prefix}_{day}_*.pdf"):
-            match = re.match(rf"{prefix}_{day}_(\d+)_", existing.name)
-            if match:
-                sequence = max(sequence, int(match.group(1)) + 1)
+        day, amount, _ = data
+        if compact_amount and amount.endswith(",00"):
+            amount = amount[:-2]
+        amount = amount.replace(",", ".")
+        sequence = prossimo_progressivo(folder, day)
     while True:
         if data:
-            day, amount, _ = data
-            name = f"{prefix}_{day}_{sequence:03d}_{amount.replace(',', '.')}euro.pdf"
+            name = f"{prefix}_{day}_{sequence:03d}_{amount}euro.pdf"
         else:
             suffix = "" if sequence == 1 else f"_{sequence}"
             name = f"{prefix}_da_verificare_{digest[:16]}{suffix}.pdf"

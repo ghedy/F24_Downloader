@@ -133,3 +133,106 @@ def test_pdf_in_model_format_without_attachment_header_is_saved(browser, tmp_pat
         target = tmp_path / "model.pdf"
         download_pdf(page, downloader.BASE_URL + "?stampa=P", target)
     assert target.read_bytes() == source.read_bytes()
+
+
+
+@pytest.mark.parametrize("has_ordinary", [False, True])
+def test_other_payments_use_same_session_period_folder_and_daily_sequence(
+        browser, tmp_path, monkeypatch, has_ordinary):
+    from src import f24_downloader as downloader
+    from src.folder_organizer import organize_folder
+    from tests.test_pdf_files import make_pdf
+
+    monkeypatch.setattr(downloader, "wait_seconds", lambda *args: None)
+    fixture = tmp_path / "fixture.pdf"
+    output = tmp_path / "output"
+    payments = {"ordinary": "241,09", "first": "100,,0 0", "second": "133,,8 4"}
+    bodies = {}
+    for index, (key, amount) in enumerate(payments.items(), 1):
+        make_pdf(fixture, ["QUIETANZA DI VERSAMENTO", "DATA DEL VERSAMENTO 1 2 1 1 2 0 2 6 ABI",
+                           f"PROTOCOLLO TELEMATICO 123 {index} Saldo delega {amount}"])
+        bodies[key] = fixture.read_bytes()
+
+    start, end = "12/11/2026", "15/11/2026"
+    visits = []
+    selected = set()
+    regenerated = False
+    with browser.new_context(accept_downloads=True) as context:
+        page = context.new_page()
+        context.add_cookies([{"name": "session", "value": "demo", "url": downloader.BASE_URL}])
+
+        def respond(route):
+            query = parse_qs(urlsplit(route.request.url).query)
+            section = query.get("Ric", [""])[0]
+            year = query.get("Anno", [None])[0]
+            key = query.get("payment", [None])[0]
+            assert route.request.all_headers()["cookie"] == "session=demo"
+            assert route.request.frame.page == page
+            visits.append((section, key, query.get("stampa", [None])[0]))
+            assert query.get("stampa") != ["P"]
+            if query.get("stampa") == ["Q"]:
+                if section == "DownloadQuietanza":
+                    assert visits[-2] == ("DetVXX", "first", None)
+                elif section == "DetVXX":
+                    assert visits[-2] == ("DetVXX", "second", None)
+                body = bodies[key] + (b"\n% regenerated quietanza" if regenerated else b"")
+                return route.fulfill(status=200, content_type="application/pdf",
+                    headers={"Content-Disposition": 'attachment; filename="quietanza.pdf"'}, body=body)
+            if section == "VERS" or (section == "VXX" and year is None):
+                target = "F24" if section == "VERS" else "VXX"
+                body = f'<a href="?Ric={target}&amp;Anno=2026">2026</a>'
+            elif section in {"F24", "VXX"}:
+                assert year == "2026"
+                if "dataDal" not in query:
+                    selected.add(section)
+                    body = "<p>Anno selezionato</p>"
+                else:
+                    assert section in selected
+                    assert query["dataDal"] == [start] and query["dataAl"] == [end]
+                    if section == "F24" and not has_ordinary:
+                        body = "<p>Nessun versamento</p>"
+                    else:
+                        if section == "F24":
+                            link = "?Ric=DetF24&amp;payment=ordinary&amp;stampa=Q"
+                            next_link = ""
+                        elif "pagina" in query:
+                            link = "?Ric=DetVXX&amp;payment=second"
+                            next_link = ""
+                        else:
+                            link = "?Ric=DetVXX&amp;payment=first"
+                            next_link = ('<a rel="next" href="?Ric=VXX&amp;Anno=2026'
+                                         '&amp;dataDal=12%2F11%2F2026&amp;dataAl=15%2F11%2F2026'
+                                         '&amp;pagina=2">Successiva</a>')
+                        body = (f'<table><tbody><tr><td><a href="{link}">Dettaglio</a></td></tr>'
+                                f'</tbody></table>{next_link}')
+            elif section == "DetVXX":
+                body = ('<a href="?Ric=DownloadQuietanza&amp;payment=first&amp;stampa=Q">Quietanza</a>'
+                        if key == "first" else "<h1>Dettaglio della disposizione</h1>")
+            else:
+                assert not section
+                body = "<p>Cassetto fiscale</p>"
+            route.fulfill(status=200, content_type="text/html", body=body)
+
+        context.route("**/*", respond)
+        page.goto(downloader.BASE_URL)
+        result = scarica_f24(page, "2026", start, end, output, log=lambda _: None, include_other=True)
+        assert result.total == result.downloaded == len(payments) - (not has_ordinary)
+        assert result.errors == result.unclassified == result.models == 0
+        if has_ordinary:
+            assert visits.index(("DetF24", "ordinary", "Q")) < visits.index(("VXX", None, None))
+        original = {file.name: file.read_bytes() for file in output.glob("*.pdf")}
+        if has_ordinary:
+            expected = {"F24_20261112_001_241.09euro.pdf", "F24_20261112_002_100.euro.pdf",
+                        "F24_20261112_003_133.84euro.pdf"}
+        else:
+            expected = {"F24_20261112_001_100.euro.pdf", "F24_20261112_002_133.84euro.pdf"}
+        assert set(original) == expected
+        selected.clear()
+        regenerated = True
+        repeated = scarica_f24(page, "2026", start, end, output, log=lambda _: None, include_other=True)
+        assert repeated.total == repeated.skipped == len(expected)
+        assert repeated.downloaded == repeated.errors == 0
+
+    organized = organize_folder(output, log=lambda _: None)
+    assert organized.renamed == organized.duplicates == organized.errors == 0
+    assert {file.name: file.read_bytes() for file in output.glob("*.pdf")} == original

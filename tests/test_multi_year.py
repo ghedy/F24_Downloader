@@ -37,7 +37,8 @@ def test_multi_year_uses_one_login_and_continues_after_unavailable_year(tmp_path
     monkeypatch.setattr(service, "esegui_cambio_utenza", user)
     monkeypatch.setattr(service, "apri_servizio_cassetto", lambda page, **kwargs: page)
     calls = []
-    def download(page, year, start, end, output, cancel, log, progress, pause):
+    def download(page, year, start, end, output, cancel, log, progress, pause, *, include_other):
+        assert include_other
         calls.append((year, start, end, output.name))
         result = (DownloadResult(unavailable_years=(2024,)) if year == "2024"
                   else DownloadResult(total=1, downloaded=1))
