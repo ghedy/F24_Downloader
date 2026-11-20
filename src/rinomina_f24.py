@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Rinomina le quietanze F24 con il formato:
-  F24_AAAAMMGG_IMPORTO_NNN.pdf
+Rinomina i PDF dei versamenti F24 e F23 nel formato PREFISSO_AAAAMMGG_NNN_IMPORTOeuro.pdf.
 """
 
 import os, re, sys
@@ -147,12 +146,36 @@ def estrai_f24_accise(text):
     return data_str, importo, ricevuta
 
 
-def estrai_dati(path_pdf):
-    """Rileva il tipo di F24 ed estrae (data_str, importo_str, ricevuta_int)."""
+def estrai_f23(text):
+    payment_date = re.search(
+        r"\bdata\s+(?:(?:del|di)\s+)?(?:versamento|pagamento)\s*[:\-]?\s*"
+        r"((?:\d[ ./\-\t]*){7}\d)(?!\d)", text, re.IGNORECASE)
+    amount = re.search(
+        r"\b(?:importo\s+(?:totale\s+)?(?:versato|(?:del\s+)?versamento|(?:del\s+)?pagamento)"
+        r"|importo\s+totale|totale\s+(?:versato|da\s+versare)|saldo\s+delega)"
+        r"\s*[:\-]?\s*(?:euro\s*|€\s*)?"
+        r"((?:\d{1,3}(?:[. ]\d{3})+|\d+)(?:[,.]+[ \t]*\d[ \t]*\d)?)(?!\d|[.,]\d)",
+        text, re.IGNORECASE)
+    if not payment_date or not amount:
+        return None
+    day = digits_to_date(re.findall(r"\d", payment_date[1]))
+    if not day:
+        return None
+    raw = amount[1].replace(" ", "")
+    if "," not in raw:
+        integral, dot, fractional = raw.rpartition(".")
+        raw = integral.replace(".", "") + "," + fractional if dot and len(fractional) == 2 else raw.replace(".", "")
+    return day, normalizza_importo(raw), 0
+
+
+def estrai_dati(path_pdf, *, f23=False):
+    """Estrae la data, l’importo e l’eventuale numero di ricevuta."""
     try:
         with pdfplumber.open(path_pdf) as pdf:
             text = pdf.pages[0].extract_text() or ""
 
+        if f23:
+            return estrai_f23(text)
         if 'QUIETANZA DI VERSAMENTO' in text:
             return estrai_quietanza(text)
         elif 'Mod. F24 Semplificato' in text:
@@ -209,6 +232,7 @@ def _impronta_contenuto(path, cache):
             # Conservare i documenti ambigui o privi di testo: solo confronto binario.
             recognized = any(marker in full_text for marker in (
                 "QUIETANZA DI VERSAMENTO", "MOD. F24", "MODELLO DI PAGAMENTO", "F24 ACCISE"))
+            recognized = recognized or (re.search(r"\bF[. ]?23\b", full_text) and estrai_f23(full_text))
             if recognized and texts and all(text.strip() for text in texts):
                 digest = hashlib.sha256(b"f24-content-v1")
                 for page, text in zip(pdf.pages, texts):
@@ -228,17 +252,18 @@ def _impronta_contenuto(path, cache):
     return fingerprint
 
 def prossimo_progressivo(folder, day):
-    pattern = re.compile(rf"F24_(?:modello_)?{day}_(\d+)_.*\.pdf", re.IGNORECASE)
+    pattern = re.compile(rf"(?:F24_(?:modello_)?|F23_){day}_(\d+)_.*\.pdf", re.IGNORECASE)
     return 1 + max((int(match[1]) for item in folder.iterdir()
                     if (match := pattern.fullmatch(item.name))), default=0)
 
 
 def processa_nuovo_file(temp_path: str, output_dir=None, comparison_cache=None,
                         document_kind="quietanza", *, compact_amount=False) -> str:
-    """Confronta byte e contenuto F24, escludendo i soli dati di generazione noti."""
-    if document_kind not in {"quietanza", "modello"}:
+    """Confronta byte e contenuto, escludendo i soli dati di generazione noti."""
+    prefixes = {"quietanza": "F24", "modello": "F24_modello", "f23": "F23"}
+    if document_kind not in prefixes:
         raise ValueError("Tipo di documento non supportato.")
-    prefix = "F24_modello" if document_kind == "modello" else "F24"
+    prefix = prefixes[document_kind]
     source = Path(temp_path)
     folder = Path(output_dir) if output_dir is not None else source.parent
     folder.mkdir(parents=True, exist_ok=True)
@@ -256,7 +281,7 @@ def processa_nuovo_file(temp_path: str, output_dir=None, comparison_cache=None,
             if _impronta_contenuto(existing, cache) == content:
                 source.unlink()
                 return "skipped"
-    data = estrai_dati(str(source))
+    data = estrai_dati(str(source), f23=prefix == "F23")
     sequence = 1
     if data:
         day, amount, _ = data

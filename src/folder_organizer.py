@@ -48,13 +48,18 @@ def _rename(source, destination, digest, folder):
 def _standard_name(path, data, digest, folder):
     if data is None:
         return path
-    prefix = "F24_modello" if path.name.startswith("F24_modello_") else "F24"
+    filename = path.name.casefold()
+    prefix = "F23" if filename.startswith("f23_") else "F24"
+    if filename.startswith("f24_modello_"):
+        prefix = "F24_modello"
     day, amount, _ = data
     amount = amount.replace(",", ".")
     match = re.fullmatch(rf"{prefix}_{day}_\d+_(\d+(?:\.\d*)?)euro\.pdf", path.name, re.IGNORECASE)
     compact = amount[:-2] if amount.endswith(".00") else amount
     if match and match[1] in (amount, compact):
         return path
+    if prefix == "F23":
+        amount = compact
     sequence = prossimo_progressivo(folder, day)
     while True:
         target = folder / f"{prefix}_{day}_{sequence:03d}_{amount}euro.pdf"
@@ -68,7 +73,7 @@ def organize_folder(folder, cancel=None, log=print, progress=None):
     if not folder.is_dir():
         raise ValueError("Cartella da riordinare non disponibile.")
     files = sorted((p for p in folder.iterdir() if p.suffix.lower() == ".pdf" and p.is_file()),
-        key=lambda p: (not bool(re.match(r"F24_(?:modello_)?\d{8}_\d+_", p.name)), p.name.casefold()))
+        key=lambda p: (not bool(re.match(r"(?:F24_(?:modello_)?|F23_)\d{8}_\d+_", p.name, re.IGNORECASE)), p.name.casefold()))
     result = FolderResult(total=len(files))
     cache, binary_seen, content_seen = {}, {}, {}
     log(f"Riordino di tutta la cartella utenza/anno: {len(files)} PDF. Confronto per contenuto.")
@@ -91,7 +96,7 @@ def organize_folder(folder, cancel=None, log=print, progress=None):
                 result.duplicates += 1
                 log(f"{index}/{len(files)} · Copia duplicata eliminata.")
             else:
-                data = estrai_dati(str(source))
+                data = estrai_dati(str(source), f23=source.name.casefold().startswith("f23_"))
                 final = _standard_name(source, data, digest, folder)
                 if final != source:
                     result.renamed += 1

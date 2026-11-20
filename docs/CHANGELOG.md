@@ -1,5 +1,14 @@
 # Modifiche
 
+## 0.2.0a15
+
+- Dopo gli F24 ordinari, scarica le quietanze Q delle altre disposizioni di
+  pagamento e i PDF degli F23 nella stessa sessione, per anno e periodo selezionati.
+- I nomi F24 e F23 usano la data effettiva del versamento e un progressivo
+  condiviso per giorno. Il rilancio riconosce i duplicati anche dopo una ristampa.
+- 168 test locali superati, incluse le prove con Firefox e portale simulato.
+  Resta la verifica delle due sezioni sul portale autenticato.
+
 ## 0.2.0a14
 
 - Pacchetto Windows x64 con Python e Firefox inclusi e installer per utente.

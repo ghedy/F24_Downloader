@@ -137,7 +137,7 @@ def test_pdf_in_model_format_without_attachment_header_is_saved(browser, tmp_pat
 
 
 @pytest.mark.parametrize("has_ordinary", [False, True])
-def test_other_payments_use_same_session_period_folder_and_daily_sequence(
+def test_all_payment_sections_use_same_session_period_folder_and_daily_sequence(
         browser, tmp_path, monkeypatch, has_ordinary):
     from src import f24_downloader as downloader
     from src.folder_organizer import organize_folder
@@ -146,11 +146,18 @@ def test_other_payments_use_same_session_period_folder_and_daily_sequence(
     monkeypatch.setattr(downloader, "wait_seconds", lambda *args: None)
     fixture = tmp_path / "fixture.pdf"
     output = tmp_path / "output"
-    payments = {"ordinary": "241,09", "first": "100,,0 0", "second": "133,,8 4"}
+    payments = {"ordinary": "241,09", "first": "100,,0 0", "second": "133,,8 4",
+                "f23_detail": "1.204,00", "f23_direct": "16,50"}
     bodies = {}
     for index, (key, amount) in enumerate(payments.items(), 1):
-        make_pdf(fixture, ["QUIETANZA DI VERSAMENTO", "DATA DEL VERSAMENTO 1 2 1 1 2 0 2 6 ABI",
-                           f"PROTOCOLLO TELEMATICO 123 {index} Saldo delega {amount}"])
+        if key.startswith("f23_"):
+            lines = ["Utente: DEMO Data: 15/11/2026 Ore: 10:20:30", "MODELLO F23",
+                     "Data del pagamento: 12/11/2026", f"Importo totale versato: {amount}",
+                     f"Identificativo di versamento {index}"]
+        else:
+            lines = ["QUIETANZA DI VERSAMENTO", "DATA DEL VERSAMENTO 1 2 1 1 2 0 2 6 ABI",
+                     f"PROTOCOLLO TELEMATICO 123 {index} Saldo delega {amount}"]
+        make_pdf(fixture, lines)
         bodies[key] = fixture.read_bytes()
 
     start, end = "12/11/2026", "15/11/2026"
@@ -169,19 +176,23 @@ def test_other_payments_use_same_session_period_folder_and_daily_sequence(
             assert route.request.all_headers()["cookie"] == "session=demo"
             assert route.request.frame.page == page
             visits.append((section, key, query.get("stampa", [None])[0]))
-            assert query.get("stampa") != ["P"]
-            if query.get("stampa") == ["Q"]:
+            if query.get("stampa") == ["P"]:
+                assert key == "f23_direct"
+            if query.get("stampa") == ["Q"] or key == "f23_direct" or "documento" in query:
                 if section == "DownloadQuietanza":
                     assert visits[-2] == ("DetVXX", "first", None)
                 elif section == "DetVXX":
                     assert visits[-2] == ("DetVXX", "second", None)
+                elif key == "f23_detail":
+                    assert visits[-2] == ("DetF23", "f23_detail", None)
+                    assert (query.get("stampa") == ["Q"]) == has_ordinary
                 body = bodies[key] + (b"\n% regenerated quietanza" if regenerated else b"")
                 return route.fulfill(status=200, content_type="application/pdf",
                     headers={"Content-Disposition": 'attachment; filename="quietanza.pdf"'}, body=body)
-            if section == "VERS" or (section == "VXX" and year is None):
-                target = "F24" if section == "VERS" else "VXX"
+            if section == "VERS" or (section in {"VXX", "F23"} and year is None):
+                target = "F24" if section == "VERS" else section
                 body = f'<a href="?Ric={target}&amp;Anno=2026">2026</a>'
-            elif section in {"F24", "VXX"}:
+            elif section in {"F24", "VXX", "F23"}:
                 assert year == "2026"
                 if "dataDal" not in query:
                     selected.add(section)
@@ -191,6 +202,11 @@ def test_other_payments_use_same_session_period_folder_and_daily_sequence(
                     assert query["dataDal"] == [start] and query["dataAl"] == [end]
                     if section == "F24" and not has_ordinary:
                         body = "<p>Nessun versamento</p>"
+                    elif section == "F23":
+                        body = ('<table><tbody><tr><td><a href="?Ric=DetF23&amp;payment=f23_detail">'
+                                '<img alt="Dettaglio"></a></td></tr><tr><td>'
+                                '<a href="?Ric=PrintF23&amp;payment=f23_direct&amp;stampa=P">PDF</a>'
+                                '</td></tr></tbody></table>')
                     else:
                         if section == "F24":
                             link = "?Ric=DetF24&amp;payment=ordinary&amp;stampa=Q"
@@ -205,6 +221,11 @@ def test_other_payments_use_same_session_period_folder_and_daily_sequence(
                                          '&amp;pagina=2">Successiva</a>')
                         body = (f'<table><tbody><tr><td><a href="{link}">Dettaglio</a></td></tr>'
                                 f'</tbody></table>{next_link}')
+            elif section == "DetF23":
+                body = ('<a href="?Ric=PrintF23&amp;payment=f23_detail&amp;documento=1">'
+                        '<img alt="Scarica PDF"></a>')
+                if has_ordinary:
+                    body += '<a href="?Ric=PrintF23&amp;payment=f23_detail&amp;stampa=Q">Quietanza</a>'
             elif section == "DetVXX":
                 body = ('<a href="?Ric=DownloadQuietanza&amp;payment=first&amp;stampa=Q">Quietanza</a>'
                         if key == "first" else "<h1>Dettaglio della disposizione</h1>")
@@ -220,12 +241,15 @@ def test_other_payments_use_same_session_period_folder_and_daily_sequence(
         assert result.errors == result.unclassified == result.models == 0
         if has_ordinary:
             assert visits.index(("DetF24", "ordinary", "Q")) < visits.index(("VXX", None, None))
+        assert visits.index(("DetVXX", "second", "Q")) < visits.index(("F23", None, None))
         original = {file.name: file.read_bytes() for file in output.glob("*.pdf")}
         if has_ordinary:
             expected = {"F24_20261112_001_241.09euro.pdf", "F24_20261112_002_100.euro.pdf",
-                        "F24_20261112_003_133.84euro.pdf"}
+                        "F24_20261112_003_133.84euro.pdf", "F23_20261112_004_1204.euro.pdf",
+                        "F23_20261112_005_16.50euro.pdf"}
         else:
-            expected = {"F24_20261112_001_100.euro.pdf", "F24_20261112_002_133.84euro.pdf"}
+            expected = {"F24_20261112_001_100.euro.pdf", "F24_20261112_002_133.84euro.pdf",
+                        "F23_20261112_003_1204.euro.pdf", "F23_20261112_004_16.50euro.pdf"}
         assert set(original) == expected
         selected.clear()
         regenerated = True

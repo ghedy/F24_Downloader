@@ -1,9 +1,10 @@
 # F24 Downloader
 
-Applicazione desktop gratuita e indipendente per raccogliere le quietanze F24
-dal Cassetto fiscale dell'Agenzia delle Entrate sul proprio computer.
+Applicazione desktop gratuita e indipendente per scaricare i PDF dei versamenti
+dal Cassetto fiscale dell'Agenzia delle Entrate. Include gli F24 ordinari, le
+altre disposizioni di pagamento e gli F23.
 
-**Versione 0.2.0a14 - versione di prova (alpha). Non ancora verificata
+**Versione 0.2.0a15 - versione di prova (alpha). Non ancora verificata
 integralmente sul portale reale.** Il progetto non è affiliato, approvato o
 supportato dall'Agenzia delle Entrate.
 
@@ -26,15 +27,15 @@ senza allegare dati fiscali o credenziali. Per vulnerabilità seguire [SECURITY.
   cartella di destinazione e pausa tra i download.
 - Controllo dell'utenza disponibile, del valore selezionato e del ritorno al portale
   dopo la conferma. Il selettore non viene riaperto per dedurre l'utenza attiva.
-- PDF separati per utenza e anno, rinomina per data/importo quando riconosciuti,
-  duplicati riconosciuti per file identico o contenuto F24 invariato e PDF non riconosciuti conservati come
-  `F24_da_verificare_...`.
+- PDF separati per utenza e anno, con prefisso F24 o F23, data effettiva del
+  versamento, progressivo condiviso per giorno e importo. I documenti con
+  dati non riconosciuti vengono salvati con `da_verificare` nel nome.
 - Avanzamento, contatori, registro in memoria e interruzione.
 - Credenziali ricordate solo su richiesta, cifrate con Windows DPAPI.
   Nessuna telemetria applicativa, persistenza di cookie o diagnostica delle pagine.
 
 Il controllo duplicati confronta prima i byte del PDF, poi il contenuto di tutte
-le pagine dei documenti F24 riconosciuti, incluse le immagini incorporate.
+le pagine dei documenti riconosciuti, incluse le immagini incorporate.
 Ignora soltanto data e ora di generazione nella riga del portale
 `Utente / Data / Ore`. Protocolli, contribuente, data del versamento, importi
 e tributi restano nel confronto: data e importo uguali da soli non bastano.
